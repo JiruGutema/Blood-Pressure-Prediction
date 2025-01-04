@@ -9,11 +9,47 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import matplotlib.pyplot as plt
 
+class LoginDialog:
+    def __init__(self, master, on_login):
+        self.master = master
+        self.on_login = on_login
+
+        self.dialog = tk.Toplevel(master)
+        self.dialog.title("Login")
+        self.dialog.geometry("400x300")
+        self.dialog.protocol("WM_DELETE_WINDOW", self.on_close)
+
+        ttk.Label(self.dialog, text="Username:").pack(pady=5)
+        self.username_entry = ttk.Entry(self.dialog)
+        self.username_entry.pack(pady=5)
+
+        ttk.Label(self.dialog, text="Password:").pack(pady=5)
+        self.password_entry = ttk.Entry(self.dialog, show="*")
+        self.password_entry.pack(pady=5)
+
+        ttk.Button(self.dialog, text="Login", command=self.check_login).pack(pady=10)
+        ttk.Button(self.dialog, text="Cancel", command=self.on_close).pack(pady=5)
+
+    def check_login(self):
+        username = self.username_entry.get()
+        password = self.password_entry.get()
+        
+        # Simple hardcoded credentials for demonstration
+        admins = {"iskel": "123456", "jiren": "098765"}
+        if username in admins and admins[username] == password:
+            self.on_login()
+            self.dialog.destroy()
+        else:
+            messagebox.showerror("Error", "Invalid username or password.")
+
+    def on_close(self):
+        self.master.quit()
+
 class BloodPressurePredictorApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Advanced Blood Pressure Prediction")
-        self.root.geometry("600x600")
+        self.root.geometry("600x700")
 
         # Styling
         style = ttk.Style()
@@ -31,7 +67,7 @@ class BloodPressurePredictorApp:
         self.create_widgets()
 
     def create_dataset(self):
-        # Generate synthetic dataset
+        # Generate synthetic dataset for systolic and diastolic blood pressure
         data = {
             "Age": np.random.randint(20, 70, 200),
             "BMI": np.random.uniform(18.5, 35.0, 200),
@@ -39,7 +75,8 @@ class BloodPressurePredictorApp:
             "Weight": np.random.uniform(50, 100, 200),
             "Cholesterol": np.random.randint(150, 300, 200),
             "Physical_Activity": np.random.choice(["Low", "Moderate", "High"], 200),
-            "Blood_Pressure": np.random.randint(90, 180, 200),
+            "Systolic_BP": np.random.randint(90, 180, 200),
+            "Diastolic_BP": np.random.randint(60, 120, 200),
         }
         self.df = pd.DataFrame(data)
 
@@ -48,37 +85,48 @@ class BloodPressurePredictorApp:
 
         # Feature and target separation
         self.X = self.df[["Age", "BMI", "Heart_Rate", "Weight", "Cholesterol", "Physical_Activity"]]
-        self.y = self.df["Blood_Pressure"]
+        self.y_systolic = self.df["Systolic_BP"]
+        self.y_diastolic = self.df["Diastolic_BP"]
 
         # Feature scaling
         self.scaler = StandardScaler()
         self.X_scaled = self.scaler.fit_transform(self.X)  # Standardization (mean = 0, std = 1)
 
     def train_model(self):
-        # Splitting the dataset
-        X_train, X_test, y_train, y_test = train_test_split(self.X_scaled, self.y, test_size=0.2, random_state=42)
+        # Splitting the dataset for systolic blood pressure
+        X_train, X_test, y_train_systolic, y_test_systolic = train_test_split(self.X_scaled, self.y_systolic, test_size=0.2, random_state=42)
+        # Splitting the dataset for diastolic blood pressure
+        _, _, y_train_diastolic, y_test_diastolic = train_test_split(self.X_scaled, self.y_diastolic, test_size=0.2, random_state=42)
 
-        # Train Random Forest Regressor (Regression model)
-        self.model = RandomForestRegressor(n_estimators=100, random_state=42)
-        self.model.fit(X_train, y_train)
+        # Train Random Forest Regressor for systolic blood pressure
+        self.model_systolic = RandomForestRegressor(n_estimators=100, random_state=42)
+        self.model_systolic.fit(X_train, y_train_systolic)
 
-        # Cross-validation
-        cv_scores = cross_val_score(self.model, self.X_scaled, self.y, cv=5, scoring='r2')
-        self.cv_mean = np.mean(cv_scores)  # Mean of R-squared scores from cross-validation
-        self.cv_std = np.std(cv_scores)    # Standard deviation of R-squared scores
+        # Train Random Forest Regressor for diastolic blood pressure
+        self.model_diastolic = RandomForestRegressor(n_estimators=100, random_state=42)
+        self.model_diastolic.fit(X_train, y_train_diastolic)
 
-        # Predict and evaluate
-        y_pred = self.model.predict(X_test)
-        self.mse = mean_squared_error(y_test, y_pred)  # Mean Squared Error (MSE)
-        self.mae = mean_absolute_error(y_test, y_pred)  # Mean Absolute Error (MAE)
-        self.r2 = r2_score(y_test, y_pred)              # R-squared score
+        # Cross-validation for systolic
+        cv_scores_systolic = cross_val_score(self.model_systolic, self.X_scaled, self.y_systolic, cv=5, scoring='r2')
+        self.cv_mean_systolic = np.mean(cv_scores_systolic)
+        self.cv_std_systolic = np.std(cv_scores_systolic)
 
-        # Calculate variance and standard deviation
-        self.variance = np.var(y_test)  # Variance of the actual blood pressure values
-        self.std_dev = np.std(y_test)    # Standard deviation of the actual blood pressure values
+        # Cross-validation for diastolic
+        cv_scores_diastolic = cross_val_score(self.model_diastolic, self.X_scaled, self.y_diastolic, cv=5, scoring='r2')
+        self.cv_mean_diastolic = np.mean(cv_scores_diastolic)
+        self.cv_std_diastolic = np.std(cv_scores_diastolic)
 
-        # Coefficient of Variation (CV) = (Standard Deviation / Mean) * 100
-        self.coeff_of_variation = (self.std_dev / np.mean(y_test)) * 100
+        # Predict and evaluate for systolic blood pressure
+        y_pred_systolic = self.model_systolic.predict(X_test)
+        self.mse_systolic = mean_squared_error(y_test_systolic, y_pred_systolic)
+        self.mae_systolic = mean_absolute_error(y_test_systolic, y_pred_systolic)
+        self.r2_systolic = r2_score(y_test_systolic, y_pred_systolic)
+
+        # Predict and evaluate for diastolic blood pressure
+        y_pred_diastolic = self.model_diastolic.predict(X_test)
+        self.mse_diastolic = mean_squared_error(y_test_diastolic, y_pred_diastolic)
+        self.mae_diastolic = mean_absolute_error(y_test_diastolic, y_pred_diastolic)
+        self.r2_diastolic = r2_score(y_test_diastolic, y_pred_diastolic)
 
     def create_widgets(self):
         frame = ttk.Frame(self.root, padding="20")
@@ -147,9 +195,11 @@ class BloodPressurePredictorApp:
             new_data = pd.DataFrame([inputs])
             new_data_scaled = self.scaler.transform(new_data)
 
-            predicted_bp = self.model.predict(new_data_scaled)
-            self.prediction_history.append(predicted_bp[0])
-            messagebox.showinfo("Prediction", f"Predicted Blood Pressure: {predicted_bp[0]:.2f}")
+            predicted_systolic = self.model_systolic.predict(new_data_scaled)
+            predicted_diastolic = self.model_diastolic.predict(new_data_scaled)
+
+            self.prediction_history.append((predicted_systolic[0], predicted_diastolic[0]))
+            messagebox.showinfo("Prediction", f"Predicted Blood Pressure: Systolic: {predicted_systolic[0]:.2f}, Diastolic: {predicted_diastolic[0]:.2f}")
 
         except ValueError as ve:
             messagebox.showerror("Input Error", f"Invalid input: {ve}")
@@ -159,7 +209,7 @@ class BloodPressurePredictorApp:
     def save_model(self):
         try:
             with open("blood_pressure_model.pkl", "wb") as file:
-                pickle.dump(self.model, file)
+                pickle.dump((self.model_systolic, self.model_diastolic), file)
             messagebox.showinfo("Info", "Model saved successfully!")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save model: {e}")
@@ -167,34 +217,49 @@ class BloodPressurePredictorApp:
     def load_model(self):
         try:
             with open("blood_pressure_model.pkl", "rb") as file:
-                self.model = pickle.load(file)
+                self.model_systolic, self.model_diastolic = pickle.load(file)
             messagebox.showinfo("Info", "Model loaded successfully!")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load model: {e}")
 
     def show_metrics(self):
-        metrics = (f"Mean Squared Error: {self.mse:.2f}\n"
-                   f"Mean Absolute Error: {self.mae:.2f}\n"
-                   f"R-squared Score: {self.r2:.2f}\n"
-                   f"Cross-Validation R2: {self.cv_mean:.2f} ± {self.cv_std:.2f}\n"
-                   f"Variance: {self.variance:.2f}\n"
-                   f"Standard Deviation: {self.std_dev:.2f}\n"
-                   f"Coefficient of Variation: {self.coeff_of_variation:.2f}%")
+        metrics = (f"Systolic Blood Pressure:\n"
+                   f"Mean Squared Error: {self.mse_systolic:.2f}\n"
+                   f"Mean Absolute Error: {self.mae_systolic:.2f}\n"
+                   f"R-squared Score: {self.r2_systolic:.2f}\n"
+                   f"Cross-Validation R2: {self.cv_mean_systolic:.2f} ± {self.cv_std_systolic:.2f}\n\n"
+                   f"Diastolic Blood Pressure:\n"
+                   f"Mean Squared Error: {self.mse_diastolic:.2f}\n"
+                   f"Mean Absolute Error: {self.mae_diastolic:.2f}\n"
+                   f"R-squared Score: {self.r2_diastolic:.2f}\n"
+                   f"Cross-Validation R2: {self.cv_mean_diastolic:.2f} ± {self.cv_std_diastolic:.2f}")
         messagebox.showinfo("Model Metrics", metrics)
 
     def show_feature_importance(self):
-        importances = self.model.feature_importances_
+        importances_systolic = self.model_systolic.feature_importances_
+        importances_diastolic = self.model_diastolic.feature_importances_
         feature_names = ["Age", "BMI", "Heart Rate", "Weight", "Cholesterol", "Physical Activity"]
-        plt.figure(figsize=(10, 6))
-        plt.barh(feature_names, importances, color="skyblue")
+
+        plt.figure(figsize=(10, 12))
+
+        plt.subplot(2, 1, 1)
+        plt.barh(feature_names, importances_systolic, color="skyblue")
         plt.xlabel("Feature Importance")
         plt.ylabel("Features")
-        plt.title("Feature Importance in Blood Pressure Prediction")
+        plt.title("Feature Importance in Systolic Blood Pressure Prediction")
+
+        plt.subplot(2, 1, 2)
+        plt.barh(feature_names, importances_diastolic, color="salmon")
+        plt.xlabel("Feature Importance")
+        plt.ylabel("Features")
+        plt.title("Feature Importance in Diastolic Blood Pressure Prediction")
+
+        plt.tight_layout()
         plt.show()
 
     def export_history(self):
         if self.prediction_history:
-            history_df = pd.DataFrame({"Prediction": self.prediction_history})
+            history_df = pd.DataFrame(self.prediction_history, columns=["Systolic Prediction", "Diastolic Prediction"])
             history_df.to_csv("prediction_history.csv", index=False)
             messagebox.showinfo("Export", "Prediction history exported to prediction_history.csv")
         else:
@@ -209,10 +274,19 @@ class BloodPressurePredictorApp:
                      "- Weight: Your weight in kg.\n"
                      "- Cholesterol: Cholesterol level.\n"
                      "- Physical Activity: Select your level of physical activity.\n\n"
-                     "Click 'Predict' to see your predicted blood pressure.")
+                     "Click 'Predict' to see your predicted systolic and diastolic blood pressure.")
         messagebox.showinfo("Help", help_text)
 
-if __name__ == "__main__":
+def main():
     root = tk.Tk()
-    app = BloodPressurePredictorApp(root)
+    root.withdraw()  # Hide the main window until login
+
+    def on_login():
+        root.deiconify()  # Show the main window
+        BloodPressurePredictorApp(root)
+
+    LoginDialog(root, on_login)
     root.mainloop()
+
+if __name__ == "__main__":
+    main()
